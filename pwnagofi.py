@@ -1,83 +1,61 @@
-import os
 import logging
-import subprocess
+from flask import render_template_string, request, abort
 from pwnagotchi import plugins
-from threading import Lock
-from flask import Flask, request, render_template_string
 
-class WifiControl(plugins.Plugin):
-    __author__ = 'your_email@example.com'
+TEMPLATE = """
+{% extends "base.html" %}
+{% set active_page = "plugins" %}
+{% block title %}
+    WiFi Config
+{% endblock %}
+
+{% block content %}
+    <h2>WiFi Configuration</h2>
+    <form method="post" action="/plugins/wificonfig/save">
+        <label for="ssid">SSID:</label><br>
+        <input type="text" id="ssid" name="ssid"><br><br>
+        <label for="password">Password:</label><br>
+        <input type="password" id="password" name="password"><br><br>
+        <input type="submit" value="Save">
+    </form>
+{% endblock %}
+"""
+
+class WiFiConfig(plugins.Plugin):
+    __author__ = 'your_username'
     __version__ = '1.0.0'
     __license__ = 'GPL3'
-    __description__ = 'This plugin connects to and disconnects from a WiFi network.'
+    __description__ = 'This plugin allows the user to configure WiFi settings.'
 
     def __init__(self):
         self.ready = False
-        self.lock = Lock()
-        self.connected = False
 
-    def on_loaded(self):
-        logging.info("WifiControl: plugin loaded")
+    def on_config_changed(self, config):
+        self.config = config
         self.ready = True
 
-    def connect_to_wifi(self, ssid, password):
+    def on_loaded(self):
         """
-        Connect to a WiFi network.
+        Gets called when the plugin gets loaded
         """
-        try:
-            result = subprocess.run(
-                ["nmcli", "d", "wifi", "connect", ssid, "password", password],
-                capture_output=True, text=True, check=True)
-            logging.info(f"WifiControl: Connected to {ssid}")
-            self.connected = True
-        except subprocess.CalledProcessError as e:
-            logging.error(f"WifiControl: Failed to connect to {ssid}: {e.stderr}")
-            self.connected = False
+        logging.info("WiFiConfig plugin loaded.")
 
-    def disconnect_from_wifi(self):
-        """
-        Disconnect from the current WiFi network.
-        """
-        try:
-            result = subprocess.run(
-                ["nmcli", "d", "disconnect", "wlan0"],
-                capture_output=True, text=True, check=True)
-            logging.info("WifiControl: Disconnected from WiFi")
-            self.connected = False
-        except subprocess.CalledProcessError as e:
-            logging.error(f"WifiControl: Failed to disconnect from WiFi: {e.stderr}")
+    def on_webhook(self, path, request):
+        if not self.ready:
+            return "Plugin not ready"
 
-    def on_internet_available(self, agent):
-        """
-        Called when there's internet connectivity.
-        """
-        if not self.ready or self.lock.locked():
-            return
+        if not path or path == "/":
+            return render_template_string(TEMPLATE)
 
-        with self.lock:
-            # Flask app to get user input for SSID and password
-            app = Flask(__name__)
+        if request.method == "POST" and path == "save":
+            ssid = request.form.get('ssid')
+            password = request.form.get('password')
+            if ssid and password:
+                # Save the SSID and password to the config
+                self.config['main']['wifi']['ssid'] = ssid
+                self.config['main']['wifi']['password'] = password
+                return "WiFi settings updated successfully!"
+            else:
+                return "SSID and password are required!", 400
 
-            @app.route('/', methods=['GET', 'POST'])
-            def index():
-                if request.method == 'POST':
-                    ssid = request.form['ssid']
-                    password = request.form['password']
-                    self.connect_to_wifi(ssid, password)
-                return render_template_string('''
-                    <form method="post">
-                        SSID: <input type="text" name="ssid"><br>
-                        Password: <input type="password" name="password"><br>
-                        <input type="submit" value="Connect">
-                    </form>
-                    <form method="post" action="/disconnect">
-                        <input type="submit" value="Disconnect">
-                    </form>
-                ''')
-
-            @app.route('/disconnect', methods=['POST'])
-            def disconnect():
-                self.disconnect_from_wifi()
-                return "Disconnected"
-
-            app.run(port=5000)   
+        abort(404)
