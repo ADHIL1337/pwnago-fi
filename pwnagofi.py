@@ -1,5 +1,7 @@
+import os
 import logging
-from flask import render_template_string, request, abort
+import subprocess
+from flask import render_template_string, request, abort, Response
 from pwnagotchi import plugins
 
 TEMPLATE = """
@@ -54,8 +56,20 @@ class WiFiConfig(plugins.Plugin):
                 # Save the SSID and password to the config
                 self.config['main']['wifi']['ssid'] = ssid
                 self.config['main']['wifi']['password'] = password
+                self.connect_to_wifi(ssid, password)
                 return "WiFi settings updated successfully!"
             else:
                 return "SSID and password are required!", 400
 
         abort(404)
+
+    def connect_to_wifi(self, ssid, password):
+        """
+        Function to connect to WiFi using the given SSID and password
+        """
+        # Use nmcli to connect to the WiFi network
+        try:
+            subprocess.run(['nmcli', 'dev', 'wifi', 'connect', ssid, 'password', password], check=True)
+            logging.info(f"Connected to WiFi network {ssid}")
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Failed to connect to WiFi network {ssid}: {e}")
